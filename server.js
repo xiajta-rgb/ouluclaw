@@ -256,21 +256,27 @@ async function extractSalesData(page, startDate, endDate) {
   });
   console.log('📋 可用选项:', options);
 
-  // 检查是否有"销售额"选项
+  // 检查是否有"销售额"或"销量"选项（不同站点可能不同）
   const hasSalesOption = options.some(opt => opt.includes('销售额'));
-  if (!hasSalesOption) {
-    console.error('❌ 下拉列表中没有"销售额"选项！');
-    throw new Error('下拉列表中没有"销售额"选项');
+  const hasVolumeOption = options.some(opt => opt.includes('销量'));
+  
+  if (!hasSalesOption && !hasVolumeOption) {
+    console.error('❌ 下拉列表中没有"销售额"或"销量"选项！');
+    throw new Error('下拉列表中没有"销售额"或"销量"选项');
   }
   
-  // 通过 evaluate 点击找到的选项
-  await page.evaluate(() => {
-    const allItems = Array.from(document.querySelectorAll('.el-select-dropdown__item'));
-    const salesItem = allItems.find(item => item.textContent.includes('销售额'));
-    if (salesItem) salesItem.click();
-  });
+  // 优先选择"销售额"，如果没有则选择"销量"
+  const targetOption = hasSalesOption ? '销售额' : '销量';
+  console.log(`📋 目标选项: ${targetOption}`);
   
-  console.log('✅ 已选择"销售额"选项');
+  // 通过 evaluate 点击找到的选项
+  await page.evaluate((target) => {
+    const allItems = Array.from(document.querySelectorAll('.el-select-dropdown__item'));
+    const targetItem = allItems.find(item => item.textContent.includes(target));
+    if (targetItem) targetItem.click();
+  }, targetOption);
+  
+  console.log(`✅ 已选择"${targetOption}"选项`);
   await mediumSleep();
 
   const canvas = await page.waitForSelector('#estimate-sales-chart canvas', { timeout: 10000 });
@@ -300,19 +306,25 @@ async function extractSalesData(page, startDate, endDate) {
       }
     }, { cx: x, cy: hoverY });
 
-    await quickSleep(100);
+    await sleep(300);
 
     const tooltipData = await page.evaluate(() => {
       const tooltip = document.querySelector('#estimate-sales-chart .g2-tooltip');
-      if (!tooltip) return null;
+      if (!tooltip) return { error: 'no tooltip' };
+
+      const style = window.getComputedStyle(tooltip);
+      const visibility = style.visibility;
+      const innerText = tooltip.innerText || '';
 
       const date = tooltip.querySelector('.g2-tooltip-title')?.textContent?.trim() || '';
       const tooltipText = tooltip.innerText || '';
-      const salesMatch = tooltipText.match(/预估大盘销售额（美元）\s*([\d\.\-万%]+)/);
+      const salesMatch = tooltipText.match(/(?:预估大盘销售额[（英]?[美]?元?|预估大盘销量)[^\d]*([£$]?[\d\.\-万%]+)/);
       const sales = salesMatch ? salesMatch[1].trim() : '';
 
-      return { date, sales, fullText: tooltipText };
+      return { date, sales, fullText: tooltipText, visibility, error: null };
     });
+
+    console.log(`  [x=${x}] tooltipData:`, tooltipData);
 
     if (tooltipData && tooltipData.date && tooltipData.sales && !dateSet.has(tooltipData.date)) {
       dateSet.add(tooltipData.date);
@@ -329,101 +341,73 @@ async function extractSalesData(page, startDate, endDate) {
     throw new Error('未提取到任何数据，请检查页面是否正常加载');
   }
 
-  const yearSum = {};
-  rawData.forEach(item => {
-    const year = item.date.split('-')[0];
-    const salesNum = parseFloat(item.sales.replace('万', ''));
+  console.log('\n📈 每月数据:');
+  console.log(rawData);
 
-    if (!isNaN(salesNum)) {
-      yearSum[year] = (yearSum[year] || 0) + salesNum;
-    }
-  });
-
-  console.log('\n📈 按年汇总结果:');
-  console.log(yearSum);
-
-  return yearSum;
+  return rawData;
 }
 
 async function waitForPageReady(page, url) {
   console.log('⏳ 等待页面加载完成...');
   
-  // 最多等待120秒（2分钟）
-  const maxWaitTime = 120000;
+  const maxWaitTime = 30000;
   const startTime = Date.now();
-  let lastLogTime = 0;
-  let hasLoggedReady = false;
+  let checkCount = 0;
   
   while (Date.now() - startTime < maxWaitTime) {
-    // 检查是否有验证码或滑块验证（这些必须完成）
-    const geetestCaptcha = await page.$('[class*="geetest_captcha"]').catch(() => null);
-    const sliderBox = await page.$('.slider-box, .verify-slider, .captcha-slider, [class*="slider"]').catch(() => null);
-    const hasSliderText = await page.$('text=请拖动滑块').catch(() => null);
+    checkCount++;
     
-    // 检查登录弹窗
-    const loginDialog = await page.$('.el-overlay-dialog');
+    const [geetestCaptcha, sliderBox, hasSliderText, loginDialog, datePicker, chart, canvas] = await Promise.all([
+      page.$('[class*="geetest_captcha"]').catch(() => null),
+      page.$('.slider-box, .verify-slider, .captcha-slider, [class*="slider"]').catch(() => null),
+      page.$('text=请拖动滑块').catch(() => null),
+      page.$('.el-overlay-dialog').catch(() => null),
+      page.$('.el-date-editor--monthrange').catch(() => null),
+      page.$('#estimate-sales-chart').catch(() => null),
+      page.$('#estimate-sales-chart canvas').catch(() => null)
+    ]);
     
-    // 检查关键数据元素
-    let datePicker = null, chart = null, canvas = null;
-    try {
-      datePicker = await page.$('.el-date-editor--monthrange');
-      chart = await page.$('#estimate-sales-chart');
-      canvas = await page.$('#estimate-sales-chart canvas');
-    } catch (e) {
-      // 元素检查失败，继续等待
-    }
-    
-    // 每5秒输出一次详细的元素检测状态
-    const now = Date.now();
-    if (now - lastLogTime > 5000) {
-      console.log(`  元素检测状态: loginDialog=${!!loginDialog}, datePicker=${!!datePicker}, chart=${!!chart}, canvas=${!!canvas}`);
-      lastLogTime = now;
-    }
-    
-    // 如果有验证码或滑块，必须等待完成
     if (geetestCaptcha || sliderBox || hasSliderText) {
-      if (geetestCaptcha) console.log('  检测到验证码，等待手动完成...');
-      if (sliderBox || hasSliderText) console.log('  检测到滑块验证，等待手动完成...');
-      await sleep(1000);
+      console.log(`  [${checkCount}] 检测到验证码/滑块验证，等待完成...`);
+      await sleep(1500);
       continue;
     }
     
-    // 如果数据元素已经存在，即使登录弹窗还在也算就绪
     if (datePicker && chart && canvas) {
-      if (!hasLoggedReady) {
-        console.log('✅ 页面已就绪，可以开始提取数据');
-        hasLoggedReady = true;
-      }
-      // 额外等待图表数据加载
-      await sleep(2000);
+      console.log(`✅ 页面已就绪 (检查了 ${checkCount} 次)`);
+      await sleep(1500);
       return true;
     }
     
-    // 如果登录弹窗还在但数据元素不存在，继续等待
-    if (loginDialog) {
-      console.log('  检测到登录弹窗，等待处理...');
+    if (loginDialog && checkCount % 5 === 0) {
+      console.log(`  [${checkCount}] 等待登录弹窗关闭...`);
     }
     
-    await sleep(1000);
+    await sleep(500);
   }
   
-  // 超时前输出最终的元素状态
-  const finalDatePicker = await page.$('.el-date-editor--monthrange');
-  const finalChart = await page.$('#estimate-sales-chart');
-  const finalCanvas = await page.$('#estimate-sales-chart canvas');
-  const finalLoginDialog = await page.$('.el-overlay-dialog');
-  console.log(`  最终状态: loginDialog=${!!finalLoginDialog}, datePicker=${!!finalDatePicker}, chart=${!!finalChart}, canvas=${!!finalCanvas}`);
-  
-  throw new Error('页面加载超时，无法进入数据提取页面');
+  console.log('⚠️ 等待超时，尝试继续执行...');
+  return true;
 }
 
 async function crawlUrls(urls, startDate, endDate) {
   const results = [];
 
-  const browser = await chromium.launch({
-    headless: false,
-    channel: 'msedge'
-  });
+  console.log('🔧 正在启动浏览器...');
+  
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: false,
+      channel: 'msedge',
+      devtools: true,
+      timeout: 30000
+    });
+    console.log('✅ 浏览器启动成功');
+  } catch (err) {
+    console.error('❌ 浏览器启动失败:', err.message);
+    throw new Error(`浏览器启动失败: ${err.message}`);
+  }
 
   try {
     const context = await browser.newContext({
@@ -532,8 +516,8 @@ app.post('/api/crawl', async (req, res) => {
 
     console.log(`\n✅ 成功: ${successCount}, ❌ 失败: ${failCount}`);
 
-    // 生成CSV格式数据（增加链接字段）
-    let csvContent = '类目,年份,预估大盘销售额（万美元）,链接\n';
+    // 生成CSV格式数据（包含每月数据）
+    let csvContent = '类目,月份,数据值（万）,链接\n';
 
     results.forEach(result => {
       if (result.success) {
@@ -542,17 +526,21 @@ app.post('/api/crawl', async (req, res) => {
         let category = 'Unknown';
         if (urlMatch) {
           category = decodeURIComponent(urlMatch[1].replace(/\(Current\)/g, ''));
-          // 进一步清理可能的特殊字符
           category = category.replace(/[+]/g, ' ').trim();
         }
         console.log(`📁 提取的类目: ${category}`);
+        console.log(`📊 result.data:`, JSON.stringify(result.data));
 
-        // 遍历年份数据
-        Object.entries(result.data).forEach(([year, sales]) => {
-          csvContent += `${category},${year},${sales.toFixed(1)},${result.url}\n`;
+        // 遍历每月数据 (result.data 现在是数组)
+        result.data.forEach((item) => {
+          console.log(`  添加数据: ${item.date} -> ${item.sales}`);
+          const salesNum = parseFloat(item.sales.replace('万', ''));
+          csvContent += `${category},${item.date},${isNaN(salesNum) ? item.sales : salesNum.toFixed(1)},${result.url}\n`;
         });
       }
     });
+
+    console.log(`📝 csvContent:`, csvContent);
 
     const timestamp = Date.now();
     const filename = `crawl-${timestamp}.csv`;

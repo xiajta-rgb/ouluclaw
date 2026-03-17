@@ -49,11 +49,15 @@ async function crawlOuluSalesData() {
       const tooltip = document.querySelector('#estimate-sales-chart .g2-tooltip');
       if (!tooltip) continue;
 
+      const style = window.getComputedStyle(tooltip);
+      if (style.visibility !== 'visible') continue;
+
       // 提取日期
       const date = tooltip.querySelector('.g2-tooltip-title')?.textContent?.trim() || '';
       // 提取预估大盘销售额（正则匹配，不依赖元素位置）
+      // 同时支持"预估大盘销售额（美元）"和"预估大盘销量"
       const tooltipText = tooltip.innerText || '';
-      const salesMatch = tooltipText.match(/预估大盘销售额（美元）\s*([\d\.\-万%]+)/);
+      const salesMatch = tooltipText.match(/(?:预估大盘销售额|预估大盘销量)[^\d]*([£$]?[\d\.\-万%]+)/);
       const sales = salesMatch ? salesMatch[1].trim() : '';
 
       // 去重并保存有效数据
