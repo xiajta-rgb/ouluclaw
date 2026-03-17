@@ -17,6 +17,95 @@ const quickSleep = (ms = 100) => new Promise(resolve => setTimeout(resolve, ms))
 const mediumSleep = (ms = 300) => new Promise(resolve => setTimeout(resolve, ms));
 const longSleep = (ms = 1000) => new Promise(resolve => setTimeout(resolve, ms));
 
+// 不同国家的字段名称映射（使用更通用的模式）
+const COUNTRY_FIELD_PATTERNS = {
+  'US': /(?:预估大盘销售额|预估大盘销售额（美元）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'UK': /(?:预估大盘销售额|预估大盘销售额（英镑）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'DE': /(?:预估大盘销售额|预估大盘销售额（欧元）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'FR': /(?:预估大盘销售额|预估大盘销售额（欧元）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'ES': /(?:预估大盘销售额|预估大盘销售额（欧元）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'IT': /(?:预估大盘销售额|预估大盘销售额（欧元）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'JP': /(?:预估大盘销售额|预估大盘销售额（日元）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'CA': /(?:预估大盘销售额|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/,
+  'AU': /(?:预估大盘销售额|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/
+};
+
+const DEFAULT_FIELD_PATTERN = /(?:预估大盘销售额|预估大盘销售额（[^）]+）|Estimated Market Sales|预估大盘销量)[^\d]*([£$€¥]?[\d\.\-万%]+)/;
+
+function resolveCountry(urls, country) {
+  if (country && country !== 'auto') {
+    console.log(`✅ 使用指定国家: ${country}`);
+    return country.toUpperCase();
+  }
+  
+  // 从URL中自动提取国家
+  for (const url of urls) {
+    const match = url.match(/[?&]site=([A-Z]{2})/i);
+    if (match) {
+      const detectedCountry = match[1].toUpperCase();
+      console.log(`✅ 从URL自动识别国家: ${detectedCountry}`);
+      return detectedCountry;
+    }
+  }
+  
+  console.log('⚠️ 无法识别国家，使用默认 US');
+  return 'US';
+}
+
+function getFieldPattern(country) {
+  return COUNTRY_FIELD_PATTERNS[country] || DEFAULT_FIELD_PATTERN;
+}
+
+function buildDetailUrl(chartUrl, targetMonth, startDate, endDate) {
+  try {
+    const urlObj = new URL(chartUrl);
+    const pathId = urlObj.searchParams.get('pathId') || '';
+    const pathName = urlObj.searchParams.get('pathName') || '';
+    const site = urlObj.searchParams.get('site') || '';
+    
+    const [year, month] = targetMonth.split('-');
+    const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+    
+    const date = `${targetMonth}-01`;
+    const endDateVal = `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
+    
+    const start = startDate || '2023-01-01';
+    const end = endDate || '2025-12-01';
+    
+    const detailUrl = `https://vip.oalur.com/analysis/market/list?date=${date}&endDate=${endDateVal}&salesSeller=1&start=${start}&end=${end}&pathId=${pathId}&pathName=${encodeURIComponent(pathName)}&site=${site}`;
+    
+    return detailUrl;
+  } catch (e) {
+    console.error('构建明细页URL失败:', e.message);
+    return '';
+  }
+}
+
+function findMaxSalesItem(rawData, startDate, endDate) {
+  let maxItem = null;
+  let maxValue = -Infinity;
+  
+  for (const item of rawData) {
+    const salesNum = parseFloat(item.sales.replace('万', '').replace(/[£$€¥]/g, ''));
+    if (!isNaN(salesNum) && salesNum > maxValue) {
+      maxValue = salesNum;
+      maxItem = item;
+    }
+  }
+  
+  if (!maxItem) {
+    maxItem = rawData[0] || { date: '', sales: '' };
+  }
+  
+  return {
+    month: maxItem.date,
+    sales: maxItem.sales,
+    detailUrl: buildDetailUrl(globalChartUrl || '', maxItem.date, startDate, endDate)
+  };
+}
+
+let globalChartUrl = '';
+
 async function loginIfNeeded(page) {
   console.log('🔍 检查是否需要登录...');
 
@@ -236,9 +325,13 @@ async function setDateRange(page, startDate, endDate) {
   }
 }
 
-async function extractSalesData(page, startDate, endDate) {
+async function extractSalesData(page, startDate, endDate, country = 'US') {
   console.log('📊 开始提取销售额数据...');
   console.log(`📅 日期范围: ${startDate} 至 ${endDate}`);
+  console.log(`🌍 国家: ${country}`);
+  
+  const fieldPattern = getFieldPattern(country);
+  console.log(`🔍 使用字段匹配模式: ${fieldPattern}`);
 
   // 先设置日期范围
   await setDateRange(page, startDate, endDate);
@@ -285,7 +378,7 @@ async function extractSalesData(page, startDate, endDate) {
 
   const startX = rect.x + 50;
   const endX = rect.x + rect.width - 50;
-  const stepX = 40;
+  const stepX = 80;
   const hoverY = rect.y + rect.height / 2;
 
   const rawData = [];
@@ -306,9 +399,10 @@ async function extractSalesData(page, startDate, endDate) {
       }
     }, { cx: x, cy: hoverY });
 
-    await sleep(300);
+    await quickSleep(150);
 
-    const tooltipData = await page.evaluate(() => {
+    const tooltipData = await page.evaluate((patternStr) => {
+      const pattern = new RegExp(patternStr);
       const tooltip = document.querySelector('#estimate-sales-chart .g2-tooltip');
       if (!tooltip) return { error: 'no tooltip' };
 
@@ -318,18 +412,19 @@ async function extractSalesData(page, startDate, endDate) {
 
       const date = tooltip.querySelector('.g2-tooltip-title')?.textContent?.trim() || '';
       const tooltipText = tooltip.innerText || '';
-      const salesMatch = tooltipText.match(/(?:预估大盘销售额[（英]?[美]?元?|预估大盘销量)[^\d]*([£$]?[\d\.\-万%]+)/);
+      const salesMatch = tooltipText.match(pattern);
       const sales = salesMatch ? salesMatch[1].trim() : '';
 
       return { date, sales, fullText: tooltipText, visibility, error: null };
-    });
+    }, fieldPattern.source);
 
-    console.log(`  [x=${x}] tooltipData:`, tooltipData);
-
-    if (tooltipData && tooltipData.date && tooltipData.sales && !dateSet.has(tooltipData.date)) {
-      dateSet.add(tooltipData.date);
-      rawData.push(tooltipData);
-      console.log(`  📊 ${tooltipData.date} → ${tooltipData.sales}`);
+    if (tooltipData && tooltipData.date && tooltipData.sales) {
+      const month = tooltipData.date.substring(0, 7);
+      if (!dateSet.has(month)) {
+        dateSet.add(month);
+        rawData.push({ date: tooltipData.date, sales: tooltipData.sales });
+        console.log(`  📊 ${tooltipData.date} → ${tooltipData.sales}`);
+      }
     }
   }
 
@@ -344,7 +439,15 @@ async function extractSalesData(page, startDate, endDate) {
   console.log('\n📈 每月数据:');
   console.log(rawData);
 
-  return rawData;
+  const maxSalesItem = findMaxSalesItem(rawData, startDate, endDate);
+  console.log(`🏆 最高销售额月份: ${maxSalesItem.month} - ${maxSalesItem.sales}`);
+  console.log(`🔗 明细页链接: ${maxSalesItem.detailUrl}`);
+
+  return rawData.map(item => ({
+    date: item.date,
+    sales: item.sales,
+    detailUrl: item.date === maxSalesItem.month ? maxSalesItem.detailUrl : ''
+  }));
 }
 
 async function waitForPageReady(page, url) {
@@ -355,6 +458,11 @@ async function waitForPageReady(page, url) {
   let checkCount = 0;
   
   while (Date.now() - startTime < maxWaitTime) {
+    if (!page || page.isClosed()) {
+      console.log('⚠️ 页面已关闭');
+      return false;
+    }
+    
     checkCount++;
     
     const [geetestCaptcha, sliderBox, hasSliderText, loginDialog, datePicker, chart, canvas] = await Promise.all([
@@ -390,8 +498,9 @@ async function waitForPageReady(page, url) {
   return true;
 }
 
-async function crawlUrls(urls, startDate, endDate) {
+async function crawlUrls(urls, startDate, endDate, country = 'auto') {
   const results = [];
+  const finalCountry = resolveCountry(urls, country);
 
   console.log('🔧 正在启动浏览器...');
   
@@ -415,10 +524,21 @@ async function crawlUrls(urls, startDate, endDate) {
     });
     const page = await context.newPage();
 
+    let isCrawlStopped = false;
+
+    page.on('close', () => {
+      console.log('⚠️ 浏览器已被关闭，停止爬取...');
+      isCrawlStopped = true;
+    });
+
     let isFirstUrl = true;
     let firstUrlProcessed = false;
 
     for (let i = 0; i < urls.length; i++) {
+      if (isCrawlStopped) {
+        console.log('🛑 爬取已停止');
+        break;
+      }
       const url = urls[i];
       console.log(`\n${'='.repeat(60)}`);
       console.log(`📄 正在处理第 ${i + 1}/${urls.length} 个URL`);
@@ -426,6 +546,10 @@ async function crawlUrls(urls, startDate, endDate) {
       console.log('='.repeat(60));
 
       try {
+        if (isCrawlStopped) {
+          console.log('🛑 爬取已停止');
+          break;
+        }
         console.log('🌐 正在访问页面...');
         await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
         console.log('✅ 页面加载完成');
@@ -438,14 +562,19 @@ async function crawlUrls(urls, startDate, endDate) {
           
           // 登录完成后，等待页面完全就绪
           console.log('🔄 登录完成，等待页面就绪...');
-          await waitForPageReady(page, url);
+          const pageReady = await waitForPageReady(page, url);
+          if (!pageReady) {
+            console.log('⚠️ 页面已关闭，停止爬取');
+            isCrawlStopped = true;
+            break;
+          }
           console.log('✅ 页面已就绪');
           
           // 第一个URL处理两次，第一次结果不保存
           if (!firstUrlProcessed) {
             console.log('🔄 第一个URL预处理方式：先处理一次（结果不保存）...');
             try {
-              await extractSalesData(page, startDate, endDate);
+              await extractSalesData(page, startDate, endDate, finalCountry);
               console.log('✅ 第一次预处理完成');
             } catch (e) {
               console.log('⚠️ 第一次预处理失败，继续正式处理...');
@@ -462,7 +591,8 @@ async function crawlUrls(urls, startDate, endDate) {
         }
 
         console.log('📊 开始提取数据...');
-        const data = await extractSalesData(page, startDate, endDate);
+        globalChartUrl = url;
+        const data = await extractSalesData(page, startDate, endDate, finalCountry);
         console.log('✅ 数据提取成功');
         results.push({ url, success: true, data });
       } catch (error) {
@@ -482,7 +612,7 @@ async function crawlUrls(urls, startDate, endDate) {
 }
 
 app.post('/api/crawl', async (req, res) => {
-  const { urls, startDate, endDate } = req.body;
+  const { urls, startDate, endDate, country } = req.body;
 
   if (!urls || !Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: '请提供有效的URL列表' });
@@ -490,11 +620,12 @@ app.post('/api/crawl', async (req, res) => {
 
   console.log('收到爬取任务:', urls);
   console.log('日期范围:', startDate || '2023-01', '至', endDate || '2025-12');
+  console.log('国家:', country || 'auto (自动识别)');
 
   const startTime = Date.now();
 
   try {
-    const results = await crawlUrls(urls, startDate, endDate);
+    const results = await crawlUrls(urls, startDate, endDate, country);
     
     const duration = Date.now() - startTime;
 
@@ -516,12 +647,13 @@ app.post('/api/crawl', async (req, res) => {
 
     console.log(`\n✅ 成功: ${successCount}, ❌ 失败: ${failCount}`);
 
-    // 生成CSV格式数据（包含每月数据）
-    let csvContent = '类目,月份,数据值（万）,链接\n';
+    const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+    const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+
+    let csvContent = '类目,' + monthNames.join(',') + ',明细页链接\n';
 
     results.forEach(result => {
       if (result.success) {
-        // 从URL中提取类目名称
         const urlMatch = result.url.match(/pathName=([^&]+)/);
         let category = 'Unknown';
         if (urlMatch) {
@@ -531,12 +663,26 @@ app.post('/api/crawl', async (req, res) => {
         console.log(`📁 提取的类目: ${category}`);
         console.log(`📊 result.data:`, JSON.stringify(result.data));
 
-        // 遍历每月数据 (result.data 现在是数组)
+        const monthData = {};
+        let detailUrl = '';
+        
         result.data.forEach((item) => {
-          console.log(`  添加数据: ${item.date} -> ${item.sales}`);
-          const salesNum = parseFloat(item.sales.replace('万', ''));
-          csvContent += `${category},${item.date},${isNaN(salesNum) ? item.sales : salesNum.toFixed(1)},${result.url}\n`;
+          const month = item.date.substring(5, 7);
+          const salesNum = parseFloat(item.sales.replace('万', '').replace(/[£$€¥]/g, ''));
+          monthData[month] = isNaN(salesNum) ? item.sales : salesNum.toFixed(1);
+          if (item.detailUrl) {
+            detailUrl = item.detailUrl;
+          }
         });
+
+        let row = category;
+        for (const m of months) {
+          row += ',' + (monthData[m] || '');
+        }
+        row += ',' + detailUrl;
+        csvContent += row + '\n';
+        
+        console.log(`  CSV行: ${row}`);
       }
     });
 
@@ -642,7 +788,6 @@ app.delete('/api/history/:filename', (req, res) => {
 
 app.delete('/api/history/all', (req, res) => {
   try {
-    // 获取所有CSV和JSON文件
     const files = fs.readdirSync(DATA_DIR)
       .filter(file => file.endsWith('.csv') || file.endsWith('.json'));
 
@@ -655,6 +800,47 @@ app.delete('/api/history/all', (req, res) => {
     res.json({ success: true, message: `已删除 ${csvCount} 个爬取记录` });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+const { crawlDetailUrls, convertToCSV } = require('./crawl-detail');
+
+app.post('/api/crawl-detail', async (req, res) => {
+  const startTime = Date.now();
+  const { urls } = req.body;
+  
+  if (!urls || !Array.isArray(urls) || urls.length === 0) {
+    return res.status(400).json({ error: '请提供有效的URL列表' });
+  }
+  
+  try {
+    console.log(`🚀 开始爬取明细数据，共 ${urls.length} 个URL...`);
+    
+    const allDetailData = await crawlDetailUrls(urls);
+    
+    const duration = Date.now() - startTime;
+    
+    if (allDetailData.length > 0) {
+      const filename = `detail-${Date.now()}.csv`;
+      const outputPath = path.join(DATA_DIR, filename);
+      const csvContent = convertToCSV(allDetailData);
+      fs.writeFileSync(outputPath, '\uFEFF' + csvContent, 'utf-8');
+      
+      console.log(`\n✅ 明细爬取完成: ${allDetailData.length} 条数据，耗时 ${duration}ms`);
+      return res.json({ 
+        success: true, 
+        message: `成功爬取 ${allDetailData.length} 条明细数据`,
+        data: allDetailData,
+        filename,
+        duration
+      });
+    } else {
+      return res.json({ success: false, error: '未获取到明细数据' });
+    }
+    
+  } catch (error) {
+    console.error('❌ 明细爬取错误:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 

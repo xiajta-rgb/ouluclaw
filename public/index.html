@@ -144,7 +144,38 @@
       background: rgba(0, 0, 0, 0.4);
     }
 
-    .date-separator {
+    .country-select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      background: rgba(0, 0, 0, 0.3);
+      color: #e2e8f0;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 16px center;
+      padding-right: 40px;
+    }
+
+    .country-select:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      background-color: rgba(0, 0, 0, 0.4);
+    }
+
+    .country-select option {
+      background: #161b22;
+      color: #e2e8f0;
+      padding: 10px;
+    }
+
+    .form-group .hint {
       font-weight: 500;
       color: #6b7280;
       font-size: 14px;
@@ -559,9 +590,26 @@
       </div>
 
       <div class="form-group">
+        <label for="country">🌍 选择国家/地区：</label>
+        <select id="country" class="country-select" onchange="onCountryChange()">
+          <option value="auto">自动识别（从URL中提取）</option>
+          <option value="US">🇺🇸 美国 (US)</option>
+          <option value="UK">🇬🇧 英国 (UK)</option>
+          <option value="DE">🇩🇪 德国 (DE)</option>
+          <option value="FR">🇫🇷 法国 (FR)</option>
+          <option value="ES">🇪🇸 西班牙 (ES)</option>
+          <option value="IT">🇮🇹 意大利 (IT)</option>
+          <option value="JP">🇯🇵 日本 (JP)</option>
+          <option value="CA">🇨🇦 加拿大 (CA)</option>
+          <option value="AU">🇦🇺 澳大利亚 (AU)</option>
+        </select>
+        <div class="hint">不同国家的字段名称不同，请选择正确的国家以匹配相应字段</div>
+      </div>
+
+      <div class="form-group">
         <label for="urls">批量输入网址（每行一个）：</label>
         <textarea id="urls" placeholder="https://vip.oalur.com/analysis/market/chart?pathId=1045624&pathName=T-Shirts&site=US
-https://vip.oalur.com/analysis/market/chart?pathId=23575647011&pathName=Polos&site=US">https://vip.oalur.com/analysis/market/chart?pathId=1730985031&pathName=Jumpers(Current)&site=UK
+https://vip.oalur.com/analysis/market/chart?pathId=23575647011&pathName=Polos&site=US" oninput="detectCountryFromUrl()">https://vip.oalur.com/analysis/market/chart?pathId=1730985031&pathName=Jumpers(Current)&site=UK
 https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(Current)&site=UK</textarea>
         <div class="hint">请输入鸥鹭网站的预估大盘销售额页面URL，每行一个</div>
       </div>
@@ -578,8 +626,12 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
 
       <div class="btn-group">
         <button class="btn btn-primary" id="startBtn" onclick="startCrawl()">
-          <span>🚀</span>
-          <span>开始爬取</span>
+          <span>📊</span>
+          <span>爬取图表</span>
+        </button>
+        <button class="btn btn-warning" id="detailBtn" onclick="startDetailCrawl()">
+          <span>📋</span>
+          <span>爬取明细</span>
         </button>
         <button class="btn btn-success" onclick="loadHistory()">
           <span>📂</span>
@@ -605,6 +657,41 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
   </div>
 
   <script>
+    const COUNTRY_CURRENCY = {
+      'US': '$',
+      'UK': '£',
+      'DE': '€',
+      'FR': '€',
+      'ES': '€',
+      'IT': '€',
+      'JP': '¥',
+      'CA': 'C$',
+      'AU': 'A$'
+    };
+
+    function detectCountryFromUrl() {
+      const urlsText = document.getElementById('urls').value;
+      const countrySelect = document.getElementById('country');
+      
+      if (countrySelect.value !== 'auto') {
+        return;
+      }
+
+      const urlMatch = urlsText.match(/[?&]site=([A-Z]{2})/i);
+      if (urlMatch) {
+        const detectedCountry = urlMatch[1].toUpperCase();
+        const options = Array.from(countrySelect.options).map(opt => opt.value);
+        if (options.includes(detectedCountry)) {
+          console.log('从URL检测到国家:', detectedCountry);
+        }
+      }
+    }
+
+    function onCountryChange() {
+      const country = document.getElementById('country').value;
+      console.log('选择的国家:', country);
+    }
+
     async function startCrawl() {
       const urlsText = document.getElementById('urls').value.trim();
 
@@ -622,15 +709,21 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
         return;
       }
 
+      // 获取国家选择
+      const country = document.getElementById('country').value;
+      
       // 获取日期范围
       const startDate = document.getElementById('startDate').value;
       const endDate = document.getElementById('endDate').value;
 
       const startBtn = document.getElementById('startBtn');
+      const detailBtn = document.getElementById('detailBtn');
       startBtn.disabled = true;
-      startBtn.textContent = '⏳ 爬取中...';
+      detailBtn.disabled = true;
+      startBtn.innerHTML = '<span>⏳</span><span>爬取中...</span>';
 
-      showToast(`正在启动浏览器爬取 ${urls.length} 个网址...<br>日期范围: ${startDate} 至 ${endDate}<br>请留意弹出的浏览器窗口，如有滑块验证请手动完成`, 'info', 5000);
+      const countryText = country === 'auto' ? '自动识别' : country;
+      showToast(`正在启动浏览器爬取 ${urls.length} 个网址...<br>国家: ${countryText} | 日期范围: ${startDate} 至 ${endDate}<br>请留意弹出的浏览器窗口，如有滑块验证请手动完成`, 'info', 5000);
       document.getElementById('results').innerHTML = '';
 
       try {
@@ -639,7 +732,7 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ urls, startDate, endDate })
+          body: JSON.stringify({ urls, startDate, endDate, country })
         });
 
         const result = await response.json();
@@ -669,8 +762,95 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
         showToast('请求失败: ' + error.message, 'error');
       } finally {
         startBtn.disabled = false;
-        startBtn.textContent = '🚀 开始爬取';
+        detailBtn.disabled = false;
+        startBtn.innerHTML = '<span>📊</span><span>爬取图表</span>';
       }
+    }
+
+    async function startDetailCrawl() {
+      const detailBtn = document.getElementById('detailBtn');
+      const status = document.getElementById('status');
+      const results = document.getElementById('results');
+      const urlsInput = document.getElementById('urls');
+      
+      const urlsText = urlsInput.value.trim();
+      if (!urlsText) {
+        showToast('请先输入要爬取的URL链接', 'error');
+        return;
+      }
+      
+      const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u);
+      if (urls.length === 0) {
+        showToast('请先输入要爬取的URL链接', 'error');
+        return;
+      }
+      
+      try {
+        const startBtn = document.getElementById('startBtn');
+        startBtn.disabled = true;
+        detailBtn.disabled = true;
+        detailBtn.innerHTML = '<span>⏳</span><span>爬取中...</span>';
+        
+        status.className = 'status loading';
+        status.innerHTML = '<div class="spinner"></div><span>正在登录并爬取明细数据...</span>';
+        results.innerHTML = '';
+        
+        const response = await fetch('/api/crawl-detail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          status.className = 'status success';
+          status.innerHTML = `<span>✓ ${result.message}</span>`;
+          
+          if (result.data && result.data.length > 0) {
+            displayDetailResults(result.data);
+          } else {
+            results.innerHTML = '<p class="no-data">未获取到明细数据</p>';
+          }
+        } else {
+          status.className = 'status error';
+          status.innerHTML = `<span>✗ 爬取失败: ${result.error}</span>`;
+        }
+      } catch (error) {
+        status.className = 'status error';
+        status.innerHTML = `<span>✗ 请求失败: ${error.message}</span>`;
+      } finally {
+        const startBtn = document.getElementById('startBtn');
+        startBtn.disabled = false;
+        detailBtn.disabled = false;
+        detailBtn.innerHTML = '<span>📋</span><span>爬取明细</span>';
+      }
+    }
+    
+    function displayDetailResults(data) {
+      const results = document.getElementById('results');
+      let html = '<div class="result-card"><h3>📋 明细数据</h3>';
+      
+      data.forEach((item, index) => {
+        html += `<div class="detail-item">
+          <div class="detail-index">${index + 1}</div>
+          <div class="detail-content">
+            <div class="detail-row"><span class="label">日期:</span><span class="value">${item.date || '-'}</span></div>
+            <div class="detail-row"><span class="label">排名:</span><span class="value">${item.rank || '-'}</span></div>
+            <div class="detail-row"><span class="label">品牌:</span><span class="value">${item.brand || '-'}</span></div>
+            <div class="detail-row"><span class="label">销售额:</span><span class="value">${item.sales || '-'}</span></div>
+            <div class="detail-row"><span class="label">销量:</span><span class="value">${item.salesVolume || '-'}</span></div>
+            <div class="detail-row"><span class="label">销售额占比:</span><span class="value">${item.salesShare || '-'}</span></div>
+            <div class="detail-row"><span class="label">销量占比:</span><span class="value">${item.volumeShare || '-'}</span></div>
+            <div class="detail-row"><span class="label">评分:</span><span class="value">${item.rating || '-'}</span></div>
+            <div class="detail-row"><span class="label">评论数:</span><span class="value">${item.reviews || '-'}</span></div>
+            <div class="detail-row"><span class="label">上架时间:</span><span class="value">${item.firstAvailable || '-'}</span></div>
+          </div>
+        </div>`;
+      });
+      
+      html += '</div>';
+      results.innerHTML = html;
     }
 
     function displayStatusBar(results, totalUrls, duration) {
