@@ -574,6 +574,34 @@
       opacity: 0.8;
       font-weight: 400;
     }
+
+    .progress-container {
+      margin: 16px 0;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    .progress-text {
+      margin-top: 8px;
+      font-size: 14px;
+      color: #ccc;
+    }
   </style>
 </head>
 <body>
@@ -585,7 +613,7 @@
     
     <div class="content">
       <div class="account-info">
-        <strong>📋 登录账号：</strong>手机号 18060944545，密码 HU69rde4
+        <strong>📋 登录账号：</strong>手机号 15394453675，密码 HU69rde1
         <br><small>注意：首次登录需要手动完成滑块验证</small>
       </div>
 
@@ -607,10 +635,9 @@
       </div>
 
       <div class="form-group">
-        <label for="urls">批量输入网址（每行一个）：</label>
+        <label for="urls">批量输入网址（每行一个）：<span id="urlCount" class="url-count">0</span>个</label>
         <textarea id="urls" placeholder="https://vip.oalur.com/analysis/market/chart?pathId=1045624&pathName=T-Shirts&site=US
-https://vip.oalur.com/analysis/market/chart?pathId=23575647011&pathName=Polos&site=US" oninput="detectCountryFromUrl()">https://vip.oalur.com/analysis/market/chart?pathId=1730985031&pathName=Jumpers(Current)&site=UK
-https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(Current)&site=UK</textarea>
+https://vip.oalur.com/analysis/market/chart?pathId=23575647011&pathName=Polos&site=US" oninput="detectCountryFromUrl()"></textarea>
         <div class="hint">请输入鸥鹭网站的预估大盘销售额页面URL，每行一个</div>
       </div>
 
@@ -640,6 +667,12 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
       </div>
 
       <div class="status" id="status"></div>
+      <div class="progress-container" id="progressContainer" style="display: none;">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text" id="progressText"></div>
+      </div>
 
       <div class="results" id="results"></div>
 
@@ -669,8 +702,28 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
       'AU': 'A$'
     };
 
+    async function loadURLsFromFile() {
+      try {
+        const response = await fetch('/api/urls');
+        const data = await response.json();
+        if (data.urls && data.urls.length > 0) {
+          document.getElementById('urls').value = data.urls.join('\n');
+          document.getElementById('urlCount').textContent = data.urls.length;
+          showToast(`已加载 ${data.urls.length} 个URL`, 'success');
+        }
+      } catch (err) {
+        showToast('加载URL失败', 'error');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', loadURLsFromFile);
+
     function detectCountryFromUrl() {
       const urlsText = document.getElementById('urls').value;
+      const urlCount = document.getElementById('urlCount');
+      const urls = urlsText.split('\n').filter(u => u.trim());
+      urlCount.textContent = urls.length;
+      
       const countrySelect = document.getElementById('country');
       
       if (countrySelect.value !== 'auto') {
@@ -772,6 +825,9 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
       const status = document.getElementById('status');
       const results = document.getElementById('results');
       const urlsInput = document.getElementById('urls');
+      const progressContainer = document.getElementById('progressContainer');
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
       
       const urlsText = urlsInput.value.trim();
       if (!urlsText) {
@@ -795,13 +851,39 @@ https://vip.oalur.com/analysis/market/chart?pathId=1730996031&pathName=Jackets(C
         status.innerHTML = '<div class="spinner"></div><span>正在登录并爬取明细数据...</span>';
         results.innerHTML = '';
         
+        progressContainer.style.display = 'block';
+        progressFill.style.width = '0%';
+        progressText.textContent = '准备中...';
+        
+        let progressPolling;
+        const startProgressPolling = () => {
+          progressPolling = setInterval(async () => {
+            try {
+              const resp = await fetch('/api/progress');
+              const data = await resp.json();
+              if (data.status === 'running') {
+                const percent = Math.round((data.current / data.total) * 100);
+                progressFill.style.width = percent + '%';
+                const urlName = data.currentUrl.split('pathName=')[1]?.split('&')[0] || data.currentUrl;
+                progressText.textContent = `正在爬取第 ${data.current}/${data.total} 个 (${percent}%) - ${urlName}`;
+              }
+            } catch (e) {}
+          }, 1000);
+        };
+        
+        startProgressPolling();
+        
         const response = await fetch('/api/crawl-detail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ urls })
         });
         
+        clearInterval(progressPolling);
+        
         const result = await response.json();
+        
+        progressContainer.style.display = 'none';
         
         if (result.success) {
           status.className = 'status success';

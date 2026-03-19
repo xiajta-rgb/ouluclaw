@@ -7,6 +7,14 @@ const quickSleep = (ms = 100) => new Promise(resolve => setTimeout(resolve, ms))
 const mediumSleep = (ms = 300) => new Promise(resolve => setTimeout(resolve, ms));
 const longSleep = (ms = 1000) => new Promise(resolve => setTimeout(resolve, ms));
 
+const randomSleep = (min = 1500, max = 3500) => {
+  const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+  return sleep(ms);
+};
+
+const randomMediumSleep = () => randomSleep(1500, 2500);
+const randomLongSleep = () => randomSleep(2500, 5000);
+
 async function loginIfNeeded(page) {
   console.log('🔍 检查是否需要登录...');
 
@@ -22,27 +30,28 @@ async function loginIfNeeded(page) {
   if (aiReportClose) {
     console.log('关闭AI市场报告弹窗...');
     await aiReportClose.click();
-    await quickSleep();
+    await randomMediumSleep();
   }
 
   const scanPos = await page.$('.SCAN.pos');
   if (scanPos) {
     console.log('点击切换登录模式...');
     await scanPos.click();
-    await mediumSleep();
+    await randomMediumSleep();
   }
 
   const passwordLoginTab = await page.$('text=密码登录');
   if (passwordLoginTab) {
     console.log('点击密码登录选项卡...');
     await passwordLoginTab.click();
-    await mediumSleep();
+    await randomMediumSleep();
   }
 
   console.log('填写登录信息...');
-  await page.fill('input[name="account"]', '18060944545');
-  await page.fill('input[name="password"]', 'HU69rde4');
-  await quickSleep();
+  await randomMediumSleep();
+  await page.fill('input[name="account"]', '15394453675');
+  await page.fill('input[name="password"]', 'HU69rde1');
+  await randomMediumSleep();
 
   try {
     const slider = await page.$('.slider-box, .verify-slider, .captcha-slider, [class*="slider"]').catch(() => null);
@@ -92,7 +101,7 @@ async function loginIfNeeded(page) {
     }
   }
 
-  await mediumSleep();
+  await randomMediumSleep();
   
   const sliderAfterLogin = await page.$('.slider-box, .verify-slider, .captcha-slider, [class*="slider"]').catch(() => null);
   const hasSliderTextAfterLogin = await page.$('text=请拖动滑块').catch(() => null);
@@ -106,7 +115,7 @@ async function loginIfNeeded(page) {
   
   console.log('⏳ 等待登录弹窗消失...');
   let waitCount = 0;
-  while (waitCount < 30) {
+  while (waitCount < 10) {
     const loginDialog = await page.$('.el-overlay-dialog');
     const slider = await page.$('.slider-box, .verify-slider, .captcha-slider, [class*="slider"]').catch(() => null);
     const hasSliderText = await page.$('text=请拖动滑块').catch(() => null);
@@ -121,11 +130,11 @@ async function loginIfNeeded(page) {
     if (slider || hasSliderText) console.log('  等待滑块验证完成...');
     if (geetestCaptcha) console.log('  等待验证码完成...');
     
-    await sleep(1000);
+    await randomMediumSleep();
     waitCount++;
   }
   
-  await sleep(3000);
+  await randomMediumSleep();
 
   console.log('✅ 登录流程完成');
   return true;
@@ -134,7 +143,7 @@ async function loginIfNeeded(page) {
 async function waitForPageReady(page, url) {
   console.log('⏳ 等待页面加载完成...');
   
-  const maxWaitTime = 30000;
+  const maxWaitTime = 15000;
   const startTime = Date.now();
   let checkCount = 0;
   
@@ -156,13 +165,13 @@ async function waitForPageReady(page, url) {
     
     if (geetestCaptcha || sliderBox || hasSliderText) {
       console.log(`  [${checkCount}] 检测到验证码/滑块验证，等待完成...`);
-      await sleep(1500);
+      await randomMediumSleep();
       continue;
     }
     
     if (tableRows.length > 0) {
       console.log(`✅ 页面已就绪 (检查了 ${checkCount} 次, 找到 ${tableRows.length} 行数据)`);
-      await sleep(1500);
+      await randomMediumSleep();
       return true;
     }
     
@@ -170,14 +179,14 @@ async function waitForPageReady(page, url) {
       console.log(`  [${checkCount}] 等待登录弹窗关闭...`);
     }
     
-    await sleep(500);
+    await randomMediumSleep();
   }
   
   console.log('⚠️ 等待超时，尝试继续执行...');
   return true;
 }
 
-async function crawlDetailUrls(urls) {
+async function crawlDetailUrls(urls, onProgress) {
   const allDetailData = [];
   
   console.log('🔧 正在启动浏览器...');
@@ -210,8 +219,9 @@ async function crawlDetailUrls(urls) {
     });
 
     console.log('📍 打开鸥鹭网站首页检查登录...');
+    await randomSleep(2000, 3500);
     await page.goto('https://vip.oalur.com/', { waitUntil: 'networkidle', timeout: 60000 });
-    await quickSleep(2000);
+    await randomMediumSleep();
 
     console.log('🔐 检测到第一个URL，需要登录...');
     await loginIfNeeded(page);
@@ -240,11 +250,17 @@ async function crawlDetailUrls(urls) {
       console.log(`📄 正在处理第 ${i + 1}/${urls.length} 个URL`);
       console.log('URL:', url);
       console.log('='.repeat(60));
+      
+      if (onProgress) {
+        onProgress(i + 1, url);
+      }
 
       try {
         console.log('🌐 正在访问页面...');
+        await randomSleep(1500, 2500);
         await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
         console.log('✅ 页面加载完成');
+        await randomMediumSleep();
         
         const urlObj = new URL(url);
         const targetMonth = urlObj.searchParams.get('date') || '';
@@ -259,66 +275,60 @@ async function crawlDetailUrls(urls) {
         const detailRows = await page.$$('tr.el-table__row');
         console.log(`  找到 ${detailRows.length} 行数据`);
         
-        if (detailRows.length < 5) {
-          console.log('  ⚠️ 排名数据不足5名，跳过');
+        if (detailRows.length < 4) {
+          console.log('  ⚠️ 排名数据不足4名，跳过');
           continue;
         }
         
-        const fifthRow = detailRows[4];
-        console.log('  🖱️ 点击第5名...');
-        await fifthRow.click();
-        await longSleep(3000);
-        
-        console.log('  📋 等待明细数据加载...');
-        await page.waitForSelector('.el-table', { timeout: 30000 });
-        await longSleep(2000);
-        
-        const detailTableRows = await page.$$('.el-table__body tr.el-table__row');
-        
-        if (detailTableRows.length === 0) {
-          console.log('  ⚠️ 未找到明细数据，跳过');
-        } else {
-          const row = detailTableRows[0];
-          try {
-            const cells = await row.$$('td');
+        // 提取第4名的BSR大类排名（点击前提取）
+        let bsrRank = '-';
+        let category = '-';
+        try {
+          const fourthRowCells = await detailRows[3].$$('td');
+          console.log(`    第4行有 ${fourthRowCells.length} 个单元格`);
+          
+          if (fourthRowCells.length >= 12) {
+            const bsrCell = fourthRowCells[11]; // 第12列（索引11）
+            const bsrText = await bsrCell.innerText();
+            console.log(`    BSR文本: "${bsrText}"`);
             
-            if (cells.length >= 8) {
-              const rankText = await cells[0].innerText();
-              const brandText = await cells[1].innerText();
-              const salesText = await cells[2].innerText();
-              const volumeText = await cells[3].innerText();
-              const salesShareText = await cells[4].innerText();
-              const volumeShareText = await cells[5].innerText();
-              const ratingText = await cells[6].innerText();
-              const reviewsText = await cells[7].innerText();
-              
-              let firstAvailable = '-';
-              if (cells.length > 8) {
-                firstAvailable = await cells[8].innerText();
-              }
-              
-              allDetailData.push({
-                date: targetMonth,
-                rank: rankText.trim(),
-                brand: brandText.trim(),
-                sales: salesText.trim(),
-                salesVolume: volumeText.trim(),
-                salesShare: salesShareText.trim(),
-                volumeShare: volumeShareText.trim(),
-                rating: ratingText.trim(),
-                reviews: reviewsText.trim(),
-                firstAvailable: firstAvailable.trim(),
-                sourceUrl: url
-              });
-              
-              console.log(`    提取: ${rankText} - ${brandText}`);
+            const bsrMatch = bsrText.match(/(\d+)/);
+            if (bsrMatch) {
+              bsrRank = bsrMatch[1];
             }
-          } catch (e) {
-            console.log('    提取行数据失败:', e.message);
+            const catMatch = bsrText.match(/([A-Za-z]+)/);
+            if (catMatch) {
+              category = catMatch[1];
+            }
+          } else if (fourthRowCells.length >= 2) {
+            // 尝试从最后一列获取
+            const lastCell = fourthRowCells[fourthRowCells.length - 1];
+            const bsrText = await lastCell.innerText();
+            console.log(`    最后一列BSR文本: "${bsrText}"`);
+            
+            const bsrMatch = bsrText.match(/(\d+)/);
+            if (bsrMatch) {
+              bsrRank = bsrMatch[1];
+            }
           }
+        } catch (e) {
+          console.log('    提取BSR排名失败:', e.message);
         }
         
-        console.log(`  ✅ 完成，当前累计 ${allDetailData.length} 条数据`);
+        console.log(`    第4名 BSR排名: ${bsrRank}, 类目: ${category}`);
+        
+        // 只保存BSR排名和URL
+        allDetailData.push({
+          date: targetMonth,
+          bsrRank: bsrRank,
+          category: category,
+          sourceUrl: url
+        });
+        
+        console.log(`    保存: ${bsrRank} - ${url}`);
+        
+        console.log('⏳ 等待一段时间后继续...');
+        await randomLongSleep();
         
       } catch (urlError) {
         console.log(`  ❌ 爬取失败: ${urlError.message}`);
@@ -337,18 +347,11 @@ async function crawlDetailUrls(urls) {
 function convertToCSV(data) {
   if (data.length === 0) return '';
   
-  const headers = ['日期', '排名', '品牌', '销售额', '销量', '销售额占比', '销量占比', '评分', '评论数', '上架时间', '来源URL'];
+  const headers = ['日期', 'BSR大类排名', '类目', '来源URL'];
   const rows = data.map(item => [
     item.date || '',
-    item.rank || '',
-    item.brand || '',
-    item.sales || '',
-    item.salesVolume || '',
-    item.salesShare || '',
-    item.volumeShare || '',
-    item.rating || '',
-    item.reviews || '',
-    item.firstAvailable || '',
+    item.bsrRank || '',
+    item.category || '',
     item.sourceUrl || ''
   ]);
   

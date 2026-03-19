@@ -12,6 +12,13 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+let crawlProgress = {
+  current: 0,
+  total: 0,
+  status: 'idle',
+  currentUrl: ''
+};
+
 // 优化：减少不必要的等待时间
 const quickSleep = (ms = 100) => new Promise(resolve => setTimeout(resolve, ms));
 const mediumSleep = (ms = 300) => new Promise(resolve => setTimeout(resolve, ms));
@@ -139,8 +146,8 @@ async function loginIfNeeded(page) {
   }
 
   console.log('填写登录信息...');
-  await page.fill('input[name="account"]', '18060944545');
-  await page.fill('input[name="password"]', 'HU69rde4');
+  await page.fill('input[name="account"]', '15394453675');
+  await page.fill('input[name="password"]', 'HU69rde1');
   await quickSleep();
 
   // 点击登录按钮
@@ -816,7 +823,19 @@ app.post('/api/crawl-detail', async (req, res) => {
   try {
     console.log(`🚀 开始爬取明细数据，共 ${urls.length} 个URL...`);
     
-    const allDetailData = await crawlDetailUrls(urls);
+    crawlProgress = {
+      current: 0,
+      total: urls.length,
+      status: 'running',
+      currentUrl: ''
+    };
+    
+    const allDetailData = await crawlDetailUrls(urls, (current, currentUrl) => {
+      crawlProgress.current = current;
+      crawlProgress.currentUrl = currentUrl;
+    });
+    
+    crawlProgress.status = 'completed';
     
     const duration = Date.now() - startTime;
     
@@ -846,6 +865,21 @@ app.post('/api/crawl-detail', async (req, res) => {
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/api/urls', (req, res) => {
+  const filePath = path.join(__dirname, '原地址.md');
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) {
+      return res.status(500).json({ error: '无法读取文件' });
+    }
+    const urls = data.split('\n').filter(line => line.trim());
+    res.json({ urls });
+  });
+});
+
+app.get('/api/progress', (req, res) => {
+  res.json(crawlProgress);
 });
 
 const PORT = 3000;
